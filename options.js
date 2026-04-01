@@ -6,12 +6,10 @@ const badge  = document.getElementById('status-badge');
 const versionCurrentEl = document.getElementById('version-current');
 const versionLatestEl = document.getElementById('version-latest');
 const downloadUpdateBtn = document.getElementById('btn-download-update');
-const extensionPathLink = document.getElementById('link-extension-path');
 const refreshExtensionLink = document.getElementById('link-refresh-extension');
 
 const RELEASES_API_URL = 'https://api.github.com/repos/LorenzoBerto-Eduzz/TicketHelper/releases/latest';
 const EXTENSIONS_PAGE_URL = 'chrome://extensions';
-const EXTENSION_DETAILS_URL = `chrome://extensions/?id=${chrome.runtime.id}`;
 
 let latestReleaseInfo = null;
 
@@ -23,47 +21,6 @@ function updateBadge(enabled) {
 function setUpdateButtonState({ text, disabled }) {
   downloadUpdateBtn.textContent = text;
   downloadUpdateBtn.disabled = disabled;
-}
-
-function toFileUrl(path) {
-  const normalized = String(path || '').replace(/\\/g, '/');
-  return `file:///${normalized}`;
-}
-
-function getParentDirectory(path) {
-  const normalized = String(path || '').replace(/[\\/]+$/, '');
-  const parts = normalized.split(/[\\/]/);
-  if (parts.length <= 1) return '';
-  parts.pop();
-  return parts.join('\\');
-}
-
-function openExtensionParentPath() {
-  const fallbackToDetails = () => {
-    chrome.tabs.create({ url: EXTENSION_DETAILS_URL });
-  };
-
-  if (!chrome.management || typeof chrome.management.getSelf !== 'function') {
-    fallbackToDetails();
-    return;
-  }
-
-  chrome.management.getSelf((selfInfo) => {
-    if (chrome.runtime.lastError) {
-      fallbackToDetails();
-      return;
-    }
-
-    const sourcePath = selfInfo && typeof selfInfo.path === 'string' ? selfInfo.path : '';
-    const parentPath = getParentDirectory(sourcePath);
-
-    if (!parentPath) {
-      fallbackToDetails();
-      return;
-    }
-
-    chrome.tabs.create({ url: toFileUrl(parentPath) });
-  });
 }
 
 function normalizeVersion(version) {
@@ -135,7 +92,7 @@ async function checkVersionAndUpdateState() {
       return;
     }
 
-    setUpdateButtonState({ text: 'Baixar versao mais recente', disabled: false });
+    setUpdateButtonState({ text: 'Baixar vers\u00e3o mais recente', disabled: false });
   } catch (error) {
     console.error('Version check failed:', error);
     versionLatestEl.textContent = 'Indisponivel';
@@ -164,11 +121,6 @@ document.getElementById('btn-edit-shortcuts').addEventListener('click', () => {
   chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
 });
 
-extensionPathLink.addEventListener('click', (event) => {
-  event.preventDefault();
-  openExtensionParentPath();
-});
-
 refreshExtensionLink.addEventListener('click', (event) => {
   event.preventDefault();
   chrome.tabs.create({ url: EXTENSIONS_PAGE_URL });
@@ -177,7 +129,7 @@ refreshExtensionLink.addEventListener('click', (event) => {
 downloadUpdateBtn.addEventListener('click', () => {
   if (!latestReleaseInfo || !latestReleaseInfo.assetUrl) return;
 
-  setUpdateButtonState({ text: 'Baixando versao mais recente...', disabled: true });
+  setUpdateButtonState({ text: 'Baixando vers\u00e3o mais recente...', disabled: true });
 
   chrome.downloads.download(
     {
@@ -189,14 +141,14 @@ downloadUpdateBtn.addEventListener('click', () => {
     (downloadId) => {
       if (chrome.runtime.lastError || !downloadId) {
         console.error('Download failed:', chrome.runtime.lastError);
-        setUpdateButtonState({ text: 'Baixar versao mais recente', disabled: false });
+        setUpdateButtonState({ text: 'Baixar vers\u00e3o mais recente', disabled: false });
         return;
       }
 
       chrome.downloads.show(downloadId);
       chrome.tabs.create({ url: EXTENSIONS_PAGE_URL });
 
-      setUpdateButtonState({ text: 'Baixar versao mais recente', disabled: false });
+      setUpdateButtonState({ text: 'Baixar vers\u00e3o mais recente', disabled: false });
     }
   );
 });
