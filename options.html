@@ -62,14 +62,14 @@
 
     .switch       { position: relative; width: 58px; height: 28px; flex-shrink: 0; }
     .switch input { opacity: 0; width: 0; height: 0; }
-    .slider       { position: absolute; inset: 0; background: transparent; border-radius: 24px; cursor: pointer; transition: background .2s; }
+    .slider       { position: absolute; inset: 0; background: #7f1d1d; border-radius: 24px; cursor: pointer; transition: background .2s; }
     .slider::before {
-      content: '';
+      content: 'off';
       position: absolute;
       width: 24px;
       height: 24px;
       border-radius: 50%;
-      background: transparent;
+      background: #ef4444;
       color: #0f172a;
       left: 2px;
       top: 2px;
@@ -337,7 +337,7 @@
     <h2>Privacidade</h2>
     <p class="note">
       Nenhum dado de cliente &eacute; salvo em disco.
-      As informa&ccedil;&otilde;es ficam no session storage durante o uso da extens&atilde;o.
+      As informa&ccedil;&otilde;es ficam apenas no armazenamento de sess&atilde;o do navegador, de forma tempor&aacute;ria, enquanto a extens&atilde;o est&aacute; em uso.
       Ao sair da p&aacute;gina, fechar a aba ou encerrar o Chrome, esses dados s&atilde;o apagados automaticamente.
     </p>
   </div>
