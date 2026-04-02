@@ -1,0 +1,60 @@
+{
+  "manifest_version": 3,
+  "name": "Ticket Helper",
+  "version": "1.0.0",
+  "description": "Extracts ticket data and automates BackOffice search",
+
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage",
+    "commands"
+  ],
+
+  "host_permissions": [
+    "<all_urls>",
+    "*://*.hubspot.com/*",
+    "*://conversas.hyperflow.global/*",
+    "*://bo.eduzz.com/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.hubspot.com/*",
+        "*://conversas.hyperflow.global/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "commands": {
+    "copy-id": {
+      "suggested_key": { "default": "Alt+1", "mac": "Alt+1" },
+      "description": "Copy Ticket ID"
+    },
+    "copy-name": {
+      "suggested_key": { "default": "Alt+2", "mac": "Alt+2" },
+      "description": "Copy Ticket Name"
+    },
+    "copy-email": {
+      "suggested_key": { "default": "Alt+3", "mac": "Alt+3" },
+      "description": "Copy Ticket Email"
+    },
+    "copy-doc": {
+      "suggested_key": { "default": "Alt+4", "mac": "Alt+4" },
+      "description": "Copy Ticket Doc"
+    }
+  },
+
+  "action": {
+    "default_title": "Toggle Ticket Helper"
+  },
+
+  "options_page": "options.html"
+}
