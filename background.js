@@ -427,6 +427,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   focusedTabId = tabId;
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError || !tab) return;
+
+    const url = tab.url || '';
+    const hasUrlTicket = !!extractTicketIdFromTabUrl(url);
+    const hasCachedTicket = !!sessionCache[tabId]?.id;
+    const proc = processes.get(tabId);
+    const hasLiveProcess = !!(proc && proc.status !== 'ABORTED');
+
+    // Tab button switch (or Ctrl+Tab) should immediately promote the clicked tab
+    // when it is already known as a ticket/chat context.
+    if (hasUrlTicket || hasCachedTicket || hasLiveProcess) {
+      persistLastTicketTabId(tabId);
+    }
+  });
   refreshFocusedTicketOwnership(tabId);
 });
 
@@ -709,12 +724,15 @@ function runBOSearch(proc) {
     const boTab = selectBOTab(allTabs, proc.tabId);
 
     if (!boTab) {
+      proc.doc = '> Sem aba BackOffice aberta';
+      proc.accounts = '-';
       proc.status = 'ABORTED';
       sendToTab(proc.tabId, {
         action: 'UPDATE_POPUP',
         processId: proc.processId,
-        fields: { name: '-', email: '-', doc: '> Sem aba BackOffice aberta', accounts: '-' }
+        fields: { doc: proc.doc, accounts: proc.accounts }
       });
+      updateCacheFromProcess(proc);
       flushPending();
       return;
     }
