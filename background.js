@@ -525,70 +525,11 @@ function copyValueInActiveTab(value, onDone) {
   });
 }
 
-let offscreenClipboardReady = null;
-
-function ensureOffscreenClipboardDocument() {
-  if (!chrome.offscreen?.createDocument) return Promise.resolve(false);
-  if (offscreenClipboardReady) return offscreenClipboardReady;
-
-  offscreenClipboardReady = (async () => {
-    try {
-      if (chrome.offscreen.hasDocument) {
-        const hasDocument = await chrome.offscreen.hasDocument();
-        if (!hasDocument) {
-          await chrome.offscreen.createDocument({
-            url: 'offscreen.html',
-            reasons: ['CLIPBOARD'],
-            justification: 'Copy shortcut values to clipboard globally across Chrome tabs.'
-          });
-        }
-      } else {
-        await chrome.offscreen.createDocument({
-          url: 'offscreen.html',
-          reasons: ['CLIPBOARD'],
-          justification: 'Copy shortcut values to clipboard globally across Chrome tabs.'
-        });
-      }
-      return true;
-    } catch (err) {
-      const message = String(err?.message || '');
-      if (message.includes('Only a single offscreen document')) return true;
-      offscreenClipboardReady = null;
-      return false;
-    }
-  })();
-
-  return offscreenClipboardReady;
-}
-
-function copyValueViaOffscreen(value, onDone) {
-  ensureOffscreenClipboardDocument()
-    .then((ok) => {
-      if (!ok) return onDone(false);
-
-      chrome.runtime.sendMessage({ action: 'WRITE_CLIPBOARD_OFFSCREEN', value }, (resp) => {
-        if (chrome.runtime.lastError) {
-          offscreenClipboardReady = null;
-          return onDone(false);
-        }
-        onDone(!!resp?.ok);
-      });
-    })
-    .catch(() => onDone(false));
-}
-
-function copyValueAnywhere(value, onDone) {
-  copyValueViaOffscreen(value, (ok) => {
-    if (ok) return onDone(true);
-    copyValueInActiveTab(value, onDone);
-  });
-}
-
 function performShortcutCopy(command, sourceTabId, data) {
   const payload = pickShortcutPayload(command, data);
   if (!payload) return;
 
-  copyValueAnywhere(payload.value, (ok) => {
+  copyValueInActiveTab(payload.value, (ok) => {
     if (!ok) return;
     if (sourceTabId) {
       sendToTab(sourceTabId, { action: 'SHOW_CHECKMARK', type: payload.type });
