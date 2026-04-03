@@ -512,32 +512,68 @@ function performShortcutCopy(command, sourceTabId, data) {
 }
 
 chrome.commands.onCommand.addListener((command) => {
-  // Service worker may have been restarted â€” read from session storage to be safe
+  // Service worker may have been restarted; read from session storage to be safe.
   chrome.storage.session.get(['sessionCache', 'lastTicketTabId'], (stored) => {
     if (stored.sessionCache) sessionCache = stored.sessionCache;
     if (stored.lastTicketTabId) lastTicketTabId = stored.lastTicketTabId;
 
-    const sourceTabId = lastTicketTabId;
-    if (!sourceTabId) return;
+    // Always prefer the currently active tab when it is a ticket/chat tab.
+    // This avoids stale copy source after fast tab switching.
+    chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+      const activeTab = tabs?.[0] || null;
+      const activeTabId = activeTab?.id ?? null;
+      const activeUrlTicketId = extractTicketIdFromTabUrl(activeTab?.url || '');
+      const activeCache = activeTabId ? sessionCache[activeTabId] : null;
+      const activeProc = activeTabId ? processes.get(activeTabId) : null;
+      const activeHasTicket =
+        !!activeUrlTicketId ||
+        !!activeCache?.id ||
+        !!(activeProc && activeProc.status !== 'ABORTED');
 
-    const cachedData = sessionCache[sourceTabId] || null;
+      let sourceTabId = lastTicketTabId;
 
-    // Prefer live popup data from the latest ticket tab; fallback to session cache.
-    chrome.tabs.sendMessage(sourceTabId, { action: 'GET_CURRENT_DATA' }, (resp) => {
-      const liveData = (!chrome.runtime.lastError && resp?.data?.id) ? resp.data : null;
+      if (activeTabId && activeHasTicket) {
+        sourceTabId = activeTabId;
+        focusedTabId = activeTabId;
+        persistLastTicketTabId(activeTabId);
 
-      if (liveData) {
-        sessionCache[sourceTabId] = {
-          id: liveData.id ?? null,
-          name: liveData.name ?? null,
-          email: liveData.email ?? null,
-          doc: liveData.doc ?? null,
-          accounts: liveData.accounts ?? null
-        };
-        syncSessionCache();
+        if (activeUrlTicketId) {
+          if (!sessionCache[activeTabId]) {
+            sessionCache[activeTabId] = {
+              id: activeUrlTicketId,
+              name: null,
+              email: null,
+              doc: null,
+              accounts: null
+            };
+            syncSessionCache();
+          } else if (!sessionCache[activeTabId].id) {
+            sessionCache[activeTabId].id = activeUrlTicketId;
+            syncSessionCache();
+          }
+        }
       }
 
-      performShortcutCopy(command, sourceTabId, liveData || cachedData);
+      if (!sourceTabId) return;
+      const cachedData = sessionCache[sourceTabId] || null;
+
+      // Prefer live popup data from the selected source tab; fallback to cache.
+      chrome.tabs.sendMessage(sourceTabId, { action: 'GET_CURRENT_DATA' }, (resp) => {
+        const liveData = (!chrome.runtime.lastError && resp?.data?.id) ? resp.data : null;
+
+        if (liveData) {
+          sessionCache[sourceTabId] = {
+            id: liveData.id ?? null,
+            name: liveData.name ?? null,
+            email: liveData.email ?? null,
+            doc: liveData.doc ?? null,
+            accounts: liveData.accounts ?? null
+          };
+          syncSessionCache();
+        }
+
+        performShortcutCopy(command, sourceTabId, liveData || cachedData);
+      });
     });
   });
 });
