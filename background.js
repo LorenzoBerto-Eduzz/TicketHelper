@@ -135,6 +135,24 @@ function isSupportedTicketHost(urlStr) {
   }
 }
 
+function isLikelyTicketContextUrl(urlStr) {
+  if (!urlStr) return false;
+  try {
+    const u = new URL(urlStr);
+    if (u.hostname.includes('hubspot.com')) {
+      if (/\/ticket\/\d+/.test(u.pathname)) return true;
+      if (u.pathname.includes('/help-desk/') && u.pathname.includes('/thread/')) return true;
+      return false;
+    }
+    if (u.hostname === 'conversas.hyperflow.global') {
+      return /\/chats\/\d+/.test(u.pathname);
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function refreshFocusedTicketOwnership(tabId) {
   if (!tabId) return;
 
@@ -142,6 +160,7 @@ function refreshFocusedTicketOwnership(tabId) {
     const urlTicketId = extractTicketIdFromTabUrl(tab?.url || '');
     const cachedTicketId = sessionCache[tabId]?.id || null;
     const supportedHost = isSupportedTicketHost(tab?.url || '');
+    const likelyTicketContext = isLikelyTicketContextUrl(tab?.url || '');
     const proc = processes.get(tabId);
     const hasLiveProcess = !!(proc && proc.status !== 'ABORTED');
 
@@ -160,6 +179,10 @@ function refreshFocusedTicketOwnership(tabId) {
     // HubSpot/Hyperflow can keep ticket state in-page without reflecting an ID in URL.
     // When that happens, prefer already-known ticket ownership for the focused tab.
     else if (supportedHost && cachedTicketId) {
+      persistLastTicketTabId(tabId);
+    }
+    // Route pattern indicates ticket/chat context even if ID is not in URL yet.
+    else if (likelyTicketContext) {
       persistLastTicketTabId(tabId);
     }
     // Also trust an existing live process for this tab on activation.
@@ -432,13 +455,14 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
 
     const url = tab.url || '';
     const hasUrlTicket = !!extractTicketIdFromTabUrl(url);
+    const hasLikelyTicketContext = isLikelyTicketContextUrl(url);
     const hasCachedTicket = !!sessionCache[tabId]?.id;
     const proc = processes.get(tabId);
     const hasLiveProcess = !!(proc && proc.status !== 'ABORTED');
 
     // Tab button switch (or Ctrl+Tab) should immediately promote the clicked tab
     // when it is already known as a ticket/chat context.
-    if (hasUrlTicket || hasCachedTicket || hasLiveProcess) {
+    if (hasUrlTicket || hasLikelyTicketContext || hasCachedTicket || hasLiveProcess) {
       persistLastTicketTabId(tabId);
     }
   });
@@ -724,13 +748,14 @@ function runBOSearch(proc) {
     const boTab = selectBOTab(allTabs, proc.tabId);
 
     if (!boTab) {
+      if (!proc.name) proc.name = '-';
       proc.doc = '> Sem aba BackOffice aberta';
       proc.accounts = '-';
       proc.status = 'ABORTED';
       sendToTab(proc.tabId, {
         action: 'UPDATE_POPUP',
         processId: proc.processId,
-        fields: { doc: proc.doc, accounts: proc.accounts }
+        fields: { name: proc.name, doc: proc.doc, accounts: proc.accounts }
       });
       updateCacheFromProcess(proc);
       flushPending();
