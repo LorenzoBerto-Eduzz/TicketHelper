@@ -749,13 +749,15 @@ function runBOSearch(proc) {
 
     if (!boTab) {
       if (!proc.name) proc.name = '-';
+      const knownEmail = proc.email || sessionCache[proc.tabId]?.email || '-';
+      if (!proc.email && knownEmail !== '-') proc.email = knownEmail;
       proc.doc = '> Sem aba BackOffice aberta';
       proc.accounts = '-';
       proc.status = 'ABORTED';
       sendToTab(proc.tabId, {
         action: 'UPDATE_POPUP',
         processId: proc.processId,
-        fields: { name: proc.name, doc: proc.doc, accounts: proc.accounts }
+        fields: { name: proc.name, email: knownEmail, doc: proc.doc, accounts: proc.accounts }
       });
       updateCacheFromProcess(proc);
       flushPending();
