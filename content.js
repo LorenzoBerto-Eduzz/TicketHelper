@@ -593,46 +593,69 @@ function extractHubSpot(processId, ticketId, isForcedStart = false) {
     return null;
   }
 
-  async function resolveEmailFromRequesterSection(ownerRaw = null, maxMs = 2600) {
+  function getRequesterSectionRoot() {
+    return (
+      document.querySelector('[data-sidebar-key="Requerente"]') ||
+      document.querySelector('[data-sidebar-key="Requester"]') ||
+      document.querySelector('[data-sidebar-card-association-object-type-id="0-1"]') ||
+      document.querySelector('[data-test-id="card-wrapper-ASSOCIATION_V3/0-1"]') ||
+      null
+    );
+  }
+
+  async function resolveEmailFromRequesterSection(ownerRaw = null, maxMs = 750) {
     const started = Date.now();
 
     while (Date.now() - started < maxMs) {
       if (!isCurrent() || emailSent) return null;
 
-      const titleEls = Array.from(document.querySelectorAll('[data-selenium-test="crm-card-title"], h2, [role="heading"]'));
-      const requesterTitleEl = titleEls.find(el => isRequesterTitle(el.innerText || ''));
+      let sectionRoot = getRequesterSectionRoot();
+      let header = null;
 
-      if (requesterTitleEl) {
-        const header =
-          requesterTitleEl.closest('[class*="ExpandableSection__ExpandableHeader"]') ||
-          requesterTitleEl.closest('.ExpandableSection__ExpandableHeader-hBFtMA') ||
-          requesterTitleEl.closest('div');
-        const sectionRoot =
-          requesterTitleEl.closest('[class*="ExpandableSection"]') ||
-          header?.parentElement ||
-          requesterTitleEl.parentElement;
+      if (!sectionRoot) {
+        const titleEls = Array.from(document.querySelectorAll('[data-selenium-test="crm-card-title"], h2, [role="heading"]'));
+        const requesterTitleEl = titleEls.find(el => isRequesterTitle(el.innerText || ''));
+        if (requesterTitleEl) {
+          header =
+            requesterTitleEl.closest('[class*="ExpandableSection__ExpandableHeader"]') ||
+            requesterTitleEl.closest('.ExpandableSection__ExpandableHeader-hBFtMA') ||
+            requesterTitleEl.closest('div');
+          sectionRoot =
+            requesterTitleEl.closest('[class*="ExpandableSection"]') ||
+            header?.parentElement ||
+            requesterTitleEl.parentElement;
+        }
+      } else {
+        header =
+          sectionRoot.querySelector('[class*="ExpandableSection__ExpandableHeader"]') ||
+          sectionRoot.querySelector('.ExpandableSection__ExpandableHeader-hBFtMA') ||
+          sectionRoot;
+      }
 
+      if (sectionRoot) {
         const toggle =
           header?.querySelector('[role="button"][aria-expanded]') ||
-          sectionRoot?.querySelector('[role="button"][aria-expanded]');
+          sectionRoot.querySelector('[role="button"][aria-expanded]');
 
         if (toggle?.getAttribute('aria-expanded') === 'false') {
           toggle.click();
-          await new Promise(r => setTimeout(r, 120));
+          await new Promise(r => setTimeout(r, 70));
           if (!isCurrent() || emailSent) return null;
         }
 
         const ownerMatchedEmail = getRequesterOwnerEmail(sectionRoot, ownerRaw);
         if (ownerMatchedEmail) return ownerMatchedEmail;
 
-        const emailInSection = findEmailInNode(sectionRoot);
-        if (!ownerRaw && emailInSection) return emailInSection;
+        if (!ownerRaw) {
+          const emailInSection = findEmailInNode(sectionRoot);
+          if (emailInSection) return emailInSection;
 
-        const emailNearHeader = findEmailInNode(header?.parentElement || header);
-        if (!ownerRaw && emailNearHeader) return emailNearHeader;
+          const emailNearHeader = findEmailInNode(header?.parentElement || header);
+          if (emailNearHeader) return emailNearHeader;
+        }
       }
 
-      await new Promise(r => setTimeout(r, 90));
+      await new Promise(r => setTimeout(r, 55));
     }
 
     return null;
@@ -647,7 +670,7 @@ function extractHubSpot(processId, ticketId, isForcedStart = false) {
     return true;
   }
 
-  async function trySingleTagFlashEmail(existingTags = null, maxMs = 900) {
+  async function trySingleTagFlashEmail(existingTags = null, maxMs = 420) {
     if (!isCurrent() || emailSent) return null;
     const initialSingle = getSingleVisibleTag(existingTags);
     if (!initialSingle) return null;
@@ -696,11 +719,11 @@ function extractHubSpot(processId, ticketId, isForcedStart = false) {
           cleanup();
           resolve(flashed);
         }
-      }, 40);
+      }, 30);
     });
   }
 
-  async function resolveHeaderOwnerThenRequester(maxMs = 2600) {
+  async function resolveHeaderOwnerThenRequester(maxMs = 750) {
     if (!isCurrent() || emailSent) return false;
     if (tryOpenerEmail()) return true;
 
@@ -875,7 +898,7 @@ function extractHubSpot(processId, ticketId, isForcedStart = false) {
     const openerRaw = getTicketOpenerLabel();
 
     // Priority for multi/hidden contacts: use explicit requester section owner email.
-    const requesterEmail = await resolveEmailFromRequesterSection(openerRaw, 2600);
+    const requesterEmail = await resolveEmailFromRequesterSection(openerRaw, 750);
     if (requesterEmail) {
       sendEmail(requesterEmail);
       return true;
@@ -935,18 +958,18 @@ function extractHubSpot(processId, ticketId, isForcedStart = false) {
 
       let tags = getTagEntries();
       if (!tags.length) {
-        tags = await waitForTagEntries(1700);
+        tags = await waitForTagEntries(700);
       }
 
       if (!isCurrent() || emailSent) return true;
 
-      const quickSingleEmail = await trySingleTagFlashEmail(tags, 950);
+      const quickSingleEmail = await trySingleTagFlashEmail(tags, 420);
       if (quickSingleEmail) {
         sendEmail(quickSingleEmail);
         return true;
       }
 
-      if (await resolveHeaderOwnerThenRequester(2200)) return true;
+      if (await resolveHeaderOwnerThenRequester(750)) return true;
       if (tryStaticSources()) return true;
 
       const multiOrHidden = tags.length > 1 || hasMoreContactsIndicator();
@@ -997,13 +1020,13 @@ function extractHubSpot(processId, ticketId, isForcedStart = false) {
       if (!isCurrent() || emailSent) return;
 
       const tags = getTagEntries();
-      const quickSingleEmail = await trySingleTagFlashEmail(tags, 950);
+      const quickSingleEmail = await trySingleTagFlashEmail(tags, 420);
       if (quickSingleEmail) {
         sendEmail(quickSingleEmail);
         return;
       }
 
-      if (await resolveHeaderOwnerThenRequester(2200)) return;
+      if (await resolveHeaderOwnerThenRequester(750)) return;
       if (tryStaticSources()) return;
 
       const multiOrHidden = tags.length > 1 || hasMoreContactsIndicator();
@@ -1024,7 +1047,7 @@ function extractHubSpot(processId, ticketId, isForcedStart = false) {
 
       if (tryStaticSources()) return;
       goHover(processId, noEmailFound);
-    }, 4200);
+    }, 1800);
   }
 
   armExtractionWatchdog();
@@ -1037,36 +1060,45 @@ function extractHubSpot(processId, ticketId, isForcedStart = false) {
     if (isForcedStart) {
       let forcedTags = getTagEntries();
       if (!forcedTags.length) {
-        forcedTags = await waitForTagEntries(2200);
+        forcedTags = await waitForTagEntries(700);
       }
 
       if (!isCurrent() || emailSent) return;
 
-      const forcedSingleEmail = await trySingleTagFlashEmail(forcedTags, 950);
+      const forcedSingleEmail = await trySingleTagFlashEmail(forcedTags, 420);
       if (forcedSingleEmail) {
         sendEmail(forcedSingleEmail);
         return;
       }
 
-      if (await resolveHeaderOwnerThenRequester(2200)) return;
+      if (await resolveHeaderOwnerThenRequester(750)) return;
       if (tryStaticSources()) return;
     }
 
     let tags = getTagEntries();
 
+    const immediateSingleEmail = await trySingleTagFlashEmail(tags, 420);
+    if (immediateSingleEmail) {
+      sendEmail(immediateSingleEmail);
+      return;
+    }
+
+    if (await resolveHeaderOwnerThenRequester(750)) return;
+    if (tryStaticSources()) return;
+
     if (!tags.length) {
-      tags = await waitForTagEntries(2800);
+      tags = await waitForTagEntries(900);
     }
 
     if (!isCurrent() || emailSent) return;
 
-    const quickSingleEmail = await trySingleTagFlashEmail(tags, 950);
+    const quickSingleEmail = await trySingleTagFlashEmail(tags, 420);
     if (quickSingleEmail) {
       sendEmail(quickSingleEmail);
       return;
     }
 
-    if (await resolveHeaderOwnerThenRequester(2200)) return;
+    if (await resolveHeaderOwnerThenRequester(750)) return;
     if (tryStaticSources()) return;
 
     const multiOrHidden = tags.length > 1 || hasMoreContactsIndicator();
@@ -1080,14 +1112,14 @@ function extractHubSpot(processId, ticketId, isForcedStart = false) {
       const ok = await resolveSingleContact(tags[0]);
       if (ok || emailSent || !isCurrent()) return;
 
-      if (await resolveHeaderOwnerThenRequester(1800)) return;
+      if (await resolveHeaderOwnerThenRequester(700)) return;
       if (tryStaticSources()) return;
       goHover(processId, noEmailFound, tags[0].labelEl || tags[0].rootEl);
       return;
     }
 
     // Tags never appeared: final generic fallback for single-contact pages.
-    if (await resolveHeaderOwnerThenRequester(2200)) return;
+    if (await resolveHeaderOwnerThenRequester(750)) return;
     if (tryStaticSources()) return;
     goHover(processId, noEmailFound);
   })();
