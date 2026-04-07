@@ -16,6 +16,7 @@ let currentTicketId  = null;
 
 // What's currently shown in the popup (null = loading "...")
 let localData = { id: null, name: null, email: null, doc: null, accounts: null };
+let boTabState = { boTab1Assigned: false, boTab2Assigned: false, armedSlot: null };
 
 // Extraction guards â€” prevent duplicate messages to background
 let emailSent      = false;
@@ -1448,6 +1449,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === 'SHOW_CHECKMARK') {
     showCheckmark(msg.type);
   }
+
+  if (msg.action === 'BO_TAB_STATE') {
+    if (msg.state) {
+      boTabState = {
+        boTab1Assigned: !!msg.state.boTab1Assigned,
+        boTab2Assigned: !!msg.state.boTab2Assigned,
+        armedSlot: msg.state.armedSlot ?? null
+      };
+      renderBOTabButtons();
+    }
+  }
 });
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -1500,8 +1512,35 @@ function createPopup() {
         <span class="th-check" id="th-check-id"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="20 6 9 17 4 12"/></svg></span>
       </div>
       <div class="th-controls">
+        <button class="th-btn th-bo-btn" id="th-btn-botab1" title="Definir BO Tab 1" style="margin-left:-4px;margin-top:-2px">
+          <svg class="th-bo-tab-icon th-bo-tab-empty" width="23" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+            <rect x="4" y="5" width="16" height="14" rx="2"/>
+            <path class="th-bo-inner-line" d="M4 9h16"/>
+          </svg>
+          <svg class="th-bo-tab-icon th-bo-tab-filled" width="23" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block" aria-hidden="true">
+            <rect x="4" y="5" width="16" height="14" rx="2"/>
+            <text class="th-bo-tab-number" x="12" y="12" dy=".35em">1</text>
+          </svg>
+        </button>
+        <button class="th-btn th-bo-btn" id="th-btn-botab2" title="Definir BO Tab 2" style="margin-left:-4px;margin-top:-2px">
+          <svg class="th-bo-tab-icon th-bo-tab-empty" width="23" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+            <rect x="4" y="5" width="16" height="14" rx="2"/>
+            <path class="th-bo-inner-line" d="M4 9h16"/>
+          </svg>
+          <svg class="th-bo-tab-icon th-bo-tab-filled" width="23" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block" aria-hidden="true">
+            <rect x="4" y="5" width="16" height="14" rx="2"/>
+            <text class="th-bo-tab-number" x="12" y="12" dy=".35em">2</text>
+          </svg>
+        </button>
+        <button class="th-btn" id="th-btn-bo-reset" title="Reiniciar abas BO" style="margin-left:-3px;margin-top:-3px">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="display:block;margin-left:1px;margin-top:1px">
+            <g transform="translate(24 0) scale(-1 1)">
+              <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M4.252 4v5H9M5.07 8a8 8 0 1 1-.818 6"/>
+            </g>
+          </svg>
+        </button>
         <span class="th-drag-handle" title="Arrastar">
-          <svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor" style="display:block">
+          <svg width="12" height="15" viewBox="0 0 12 14" fill="currentColor" style="display:block">
             <circle cx="3" cy="2.5" r="1.4"/>
             <circle cx="9" cy="2.5" r="1.4"/>
             <circle cx="3" cy="7"   r="1.4"/>
@@ -1510,19 +1549,13 @@ function createPopup() {
             <circle cx="9" cy="11.5" r="1.4"/>
           </svg>
         </span>
-        <button class="th-btn" id="th-btn-eye" title="Ver aba BackOffice" style="margin-left:2px">
-          <svg width="17" height="14" viewBox="0 5 24 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-            <circle cx="12" cy="12" r="3"/>
-          </svg>
-        </button>
-        <button class="th-btn" id="th-btn-gear" title="ConfiguraÃ§Ãµes" style="margin-left:3px;margin-top:0px">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+        <button class="th-btn" id="th-btn-gear" title="Configurações" style="margin-left:1px;margin-top:-2px">
+          <svg width="15" height="15" viewBox="-1 -1 26 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;overflow:visible">
             <circle cx="12" cy="12" r="3"/>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
         </button>
-        <button class="th-btn" id="th-btn-close" title="Desativar" style="margin-top:1px">
+        <button class="th-btn" id="th-btn-close" title="Desativar" style="margin-top:-2px">
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" style="display:block">
             <line x1="18" y1="6" x2="6" y2="18"/>
             <line x1="6" y1="6" x2="18" y2="18"/>
@@ -1580,6 +1613,8 @@ function createPopup() {
   bindDragging();
   bindButtons();
   bindRowClicks();
+  renderBOTabButtons();
+  requestBOTabState();
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -1652,8 +1687,67 @@ function clampPopup(save = false) {
 
 function bindButtons() {
   popup.querySelector('#th-btn-close').addEventListener('click', () => msgBg({ action: 'FORCE_DISABLE' }));
-  popup.querySelector('#th-btn-gear' ).addEventListener('click', () => msgBg({ action: 'OPEN_OPTIONS'  }));
-  popup.querySelector('#th-btn-eye'  ).addEventListener('click', () => msgBg({ action: 'FOCUS_BO_TAB'  }));
+  popup.querySelector('#th-btn-gear').addEventListener('click', () => msgBg({ action: 'OPEN_OPTIONS' }));
+  popup.querySelector('#th-btn-bo-reset').addEventListener('click', async () => {
+    const resp = await msgBg({ action: 'RESET_BO_TABS' });
+    if (resp?.state) {
+      boTabState = {
+        boTab1Assigned: !!resp.state.boTab1Assigned,
+        boTab2Assigned: !!resp.state.boTab2Assigned,
+        armedSlot: resp.state.armedSlot ?? null
+      };
+      renderBOTabButtons();
+    }
+  });
+  popup.querySelector('#th-btn-botab1').addEventListener('click', async () => {
+    const resp = await msgBg({ action: 'ARM_BO_TAB', slot: 1 });
+    if (resp?.state) {
+      boTabState = {
+        boTab1Assigned: !!resp.state.boTab1Assigned,
+        boTab2Assigned: !!resp.state.boTab2Assigned,
+        armedSlot: resp.state.armedSlot ?? null
+      };
+      renderBOTabButtons();
+    }
+  });
+  popup.querySelector('#th-btn-botab2').addEventListener('click', async () => {
+    const resp = await msgBg({ action: 'ARM_BO_TAB', slot: 2 });
+    if (resp?.state) {
+      boTabState = {
+        boTab1Assigned: !!resp.state.boTab1Assigned,
+        boTab2Assigned: !!resp.state.boTab2Assigned,
+        armedSlot: resp.state.armedSlot ?? null
+      };
+      renderBOTabButtons();
+    }
+  });
+}
+
+function renderBOTabButtons() {
+  if (!popup) return;
+  const bo1Btn = popup.querySelector('#th-btn-botab1');
+  const bo2Btn = popup.querySelector('#th-btn-botab2');
+  if (!bo1Btn || !bo2Btn) return;
+
+  const setVisual = (btn, slot, assigned) => {
+    btn.classList.toggle('is-assigned', assigned);
+    btn.classList.toggle('is-armed', boTabState.armedSlot === slot);
+  };
+
+  setVisual(bo1Btn, 1, !!boTabState.boTab1Assigned);
+  setVisual(bo2Btn, 2, !!boTabState.boTab2Assigned);
+}
+
+async function requestBOTabState() {
+  const resp = await msgBg({ action: 'GET_BO_TAB_STATE' });
+  if (!resp?.state) return;
+
+  boTabState = {
+    boTab1Assigned: !!resp.state.boTab1Assigned,
+    boTab2Assigned: !!resp.state.boTab2Assigned,
+    armedSlot: resp.state.armedSlot ?? null
+  };
+  renderBOTabButtons();
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -1773,7 +1867,8 @@ function injectStyles() {
       cursor:move; color:#4b5563;
       display:flex; align-items:center; justify-content:center;
       padding:2px 1px;
-      margin-left:-7px;
+      margin-left:0;
+      margin-top:-2px;
     }
     .th-drag-handle:hover { color:#9ca3af; }
     .th-btn {
@@ -1783,6 +1878,46 @@ function injectStyles() {
       transition:color 0.12s;
     }
     .th-btn:hover { color:#f9fafb; }
+    .th-bo-btn {
+      position: relative;
+      width: 23px;
+      height: 19px;
+    }
+    .th-bo-tab-icon {
+      position: absolute;
+      inset: 0;
+      width: 23px;
+      height: 19px;
+    }
+    .th-bo-tab-filled {
+      display: none !important;
+    }
+    .th-bo-tab-number {
+      fill: currentColor;
+      font-size: 11.2px;
+      font-family: 'Arial Black', 'Segoe UI', 'Roboto', 'Arial', sans-serif;
+      font-weight: 900;
+      font-variant-numeric: tabular-nums lining-nums;
+      text-anchor: middle;
+      dominant-baseline: auto;
+      text-rendering: geometricPrecision;
+      paint-order: stroke;
+      stroke: currentColor;
+      stroke-width: 0.15px;
+      letter-spacing: -0.1px;
+    }
+    .th-bo-btn.is-assigned .th-bo-tab-empty {
+      display: none !important;
+    }
+    .th-bo-btn.is-assigned .th-bo-tab-filled {
+      display: block !important;
+    }
+    .th-bo-btn:hover .th-bo-tab-number {
+      color: #f9fafb;
+    }
+    .th-bo-btn.is-armed {
+      color: #f9fafb;
+    }
   `;
   document.head.appendChild(s);
 }

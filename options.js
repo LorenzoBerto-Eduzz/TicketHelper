@@ -15,6 +15,7 @@ const SHORTCUTS_PAGE_URL = 'chrome://extensions/shortcuts';
 const OPTIONS_POPUP_POS_KEY = 'popupPosition_options';
 
 let latestReleaseInfo = null;
+let optionsBoTabState = { boTab1Assigned: false, boTab2Assigned: false, armedSlot: null };
 
 const CHECK_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
 const DOWNLOAD_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>';
@@ -115,6 +116,30 @@ function bindOptionsPopupButtons() {
       chrome.storage.local.set({ enabled: false });
     });
   }
+
+  const boTab1Btn = optionsPopup.querySelector('#th-btn-botab1');
+  if (boTab1Btn) {
+    boTab1Btn.addEventListener('click', async () => {
+      const resp = await sendMessageToBackground({ action: 'ARM_BO_TAB', slot: 1 });
+      applyOptionsBoTabState(resp?.state);
+    });
+  }
+
+  const boTab2Btn = optionsPopup.querySelector('#th-btn-botab2');
+  if (boTab2Btn) {
+    boTab2Btn.addEventListener('click', async () => {
+      const resp = await sendMessageToBackground({ action: 'ARM_BO_TAB', slot: 2 });
+      applyOptionsBoTabState(resp?.state);
+    });
+  }
+
+  const boResetBtn = optionsPopup.querySelector('#th-btn-bo-reset');
+  if (boResetBtn) {
+    boResetBtn.addEventListener('click', async () => {
+      const resp = await sendMessageToBackground({ action: 'RESET_BO_TABS' });
+      applyOptionsBoTabState(resp?.state);
+    });
+  }
 }
 
 function initOptionsPopup() {
@@ -122,6 +147,8 @@ function initOptionsPopup() {
 
   bindOptionsPopupDragging();
   bindOptionsPopupButtons();
+  renderOptionsBoTabButtons();
+  requestOptionsBoTabState();
 
   chrome.storage.local.get(OPTIONS_POPUP_POS_KEY, (data) => {
     const pos = data[OPTIONS_POPUP_POS_KEY];
@@ -137,6 +164,50 @@ function initOptionsPopup() {
     optionsPopup.style.visibility = 'visible';
     clampOptionsPopup();
   });
+}
+
+function sendMessageToBackground(message) {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage(message, (response) => {
+        void chrome.runtime.lastError;
+        resolve(response ?? null);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+function renderOptionsBoTabButtons() {
+  if (!optionsPopup) return;
+
+  const bo1Btn = optionsPopup.querySelector('#th-btn-botab1');
+  const bo2Btn = optionsPopup.querySelector('#th-btn-botab2');
+  if (!bo1Btn || !bo2Btn) return;
+
+  const setVisual = (btn, slot, assigned) => {
+    btn.classList.toggle('is-assigned', !!assigned);
+    btn.classList.toggle('is-armed', optionsBoTabState.armedSlot === slot);
+  };
+
+  setVisual(bo1Btn, 1, optionsBoTabState.boTab1Assigned);
+  setVisual(bo2Btn, 2, optionsBoTabState.boTab2Assigned);
+}
+
+function applyOptionsBoTabState(state) {
+  if (!state) return;
+  optionsBoTabState = {
+    boTab1Assigned: !!state.boTab1Assigned,
+    boTab2Assigned: !!state.boTab2Assigned,
+    armedSlot: state.armedSlot ?? null
+  };
+  renderOptionsBoTabButtons();
+}
+
+async function requestOptionsBoTabState() {
+  const response = await sendMessageToBackground({ action: 'GET_BO_TAB_STATE' });
+  applyOptionsBoTabState(response?.state);
 }
 
 function closeOptionsTab() {
@@ -248,6 +319,11 @@ chrome.storage.onChanged.addListener((changes, area) => {
   const enabled = !!changes.enabled.newValue;
   toggle.checked = enabled;
   setOptionsPopupVisible(enabled);
+});
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.action !== 'BO_TAB_STATE') return;
+  applyOptionsBoTabState(message.state);
 });
 
 document.getElementById('btn-edit-shortcuts').addEventListener('click', () => {

@@ -21,12 +21,162 @@ function persistLastTicketTabId(tabId) {
   chrome.storage.session.set({ lastTicketTabId: tabId }).catch(() => {});
 }
 
-/** Cached preferred BO tab to avoid re-selecting every search */
-let preferredBOTabId = null;
+/** Manually assigned BO tabs */
+let boTab1Id = null;
+let boTab2Id = null;
+let boAssignArmedSlot = null;
 
-function persistPreferredBOTabId(tabId) {
-  preferredBOTabId = tabId;
-  chrome.storage.session.set({ preferredBOTabId: tabId }).catch(() => {});
+const BO_DASHBOARD_HOST = 'bo.eduzz.com';
+const BO_DASHBOARD_PATH = '/dashboard';
+
+function persistBOTabState() {
+  chrome.storage.session.set({
+    boTab1Id,
+    boTab2Id,
+    boAssignArmedSlot
+  }).catch(() => {});
+}
+
+function isDashboardBOTabUrl(urlStr) {
+  if (!urlStr) return false;
+  try {
+    const u = new URL(urlStr);
+    return u.hostname === BO_DASHBOARD_HOST && u.pathname.startsWith(BO_DASHBOARD_PATH);
+  } catch {
+    return false;
+  }
+}
+
+function getBOTabState() {
+  return {
+    boTab1Id,
+    boTab2Id,
+    boTab1Assigned: !!boTab1Id,
+    boTab2Assigned: !!boTab2Id,
+    armedSlot: boAssignArmedSlot
+  };
+}
+
+function broadcastBOTabState() {
+  const payload = { action: 'BO_TAB_STATE', state: getBOTabState() };
+  chrome.runtime.sendMessage(payload, () => {
+    void chrome.runtime.lastError;
+  });
+  chrome.tabs.query({}, (tabs) => {
+    for (const t of tabs) {
+      if (typeof t.id === 'number') sendToTab(t.id, payload);
+    }
+  });
+}
+
+function setArmedBOTabSlot(slot, notify = true) {
+  boAssignArmedSlot = slot;
+  persistBOTabState();
+  if (notify) broadcastBOTabState();
+}
+
+function setBOTabAssignment(slot, tabId, notify = true) {
+  if (slot === 1) boTab1Id = tabId ?? null;
+  if (slot === 2) boTab2Id = tabId ?? null;
+  persistBOTabState();
+  if (notify) broadcastBOTabState();
+}
+
+function clearBOTabAssignments(notify = true) {
+  boTab1Id = null;
+  boTab2Id = null;
+  boAssignArmedSlot = null;
+  persistBOTabState();
+  if (notify) broadcastBOTabState();
+}
+
+function getAssignedBOTabId(slot) {
+  return slot === 2 ? boTab2Id : boTab1Id;
+}
+
+function focusBOTab(tabId, callback) {
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError || !tab || !isDashboardBOTabUrl(tab.url || '')) {
+      callback(false);
+      return;
+    }
+
+    chrome.tabs.update(tabId, { active: true }, () => {
+      if (chrome.runtime.lastError) {
+        callback(false);
+        return;
+      }
+      chrome.windows.update(tab.windowId, { focused: true }, () => {
+        void chrome.runtime.lastError;
+        callback(true);
+      });
+    });
+  });
+}
+
+function assignBOTabSlotFromArmedTab(slot, tabId) {
+  const otherSlot = slot === 1 ? 2 : 1;
+  const currentTargetTabId = getAssignedBOTabId(slot);
+  const currentOtherTabId = getAssignedBOTabId(otherSlot);
+
+  if (currentOtherTabId === tabId) {
+    // If target already had another tab, swap them.
+    // If target was empty, move currentOther to target and clear other.
+    if (currentTargetTabId && currentTargetTabId !== tabId) {
+      if (otherSlot === 1) boTab1Id = currentTargetTabId;
+      else boTab2Id = currentTargetTabId;
+    } else {
+      if (otherSlot === 1) boTab1Id = null;
+      else boTab2Id = null;
+    }
+  }
+
+  if (slot === 1) boTab1Id = tabId;
+  else boTab2Id = tabId;
+
+  boAssignArmedSlot = null;
+  persistBOTabState();
+  broadcastBOTabState();
+}
+
+function assignArmedBOTabFromTab(tab) {
+  if (!boAssignArmedSlot) return;
+  if (!tab || typeof tab.id !== 'number') return;
+  if (!isDashboardBOTabUrl(tab.url || '')) return;
+
+  assignBOTabSlotFromArmedTab(boAssignArmedSlot, tab.id);
+}
+
+function clearAssignedBOTabIfRemoved(tabId) {
+  let changed = false;
+  if (boTab1Id === tabId) {
+    boTab1Id = null;
+    changed = true;
+  }
+  if (boTab2Id === tabId) {
+    boTab2Id = null;
+    changed = true;
+  }
+  if (changed) {
+    persistBOTabState();
+    broadcastBOTabState();
+  }
+}
+
+function resolveAssignedBOTab1(callback) {
+  if (!boTab1Id) {
+    callback(null);
+    return;
+  }
+
+  chrome.tabs.get(boTab1Id, (tab) => {
+    if (chrome.runtime.lastError || !tab || !isDashboardBOTabUrl(tab.url || '')) {
+      if (boTab1Id !== null) setBOTabAssignment(1, null);
+      callback(null);
+      return;
+    }
+    callback(tab);
+  });
 }
 
 /** Is a BO search currently running? Only one at a time. */
@@ -373,30 +523,45 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // â”€â”€ FOCUS_BO_TAB: eye button pressed â€” switch to the preferred BO tab â”€â”€
-  if (msg.action === 'FOCUS_BO_TAB') {
-    const focusTab = (tabId) => {
-      chrome.tabs.get(tabId, (tab) => {
-        if (chrome.runtime.lastError || !tab) return;
-        chrome.tabs.update(tabId, { active: true }, () => {
-          chrome.windows.update(tab.windowId, { focused: true });
-        });
-      });
-    };
+  // â”€â”€ BO TAB ASSIGNMENT: manual slot selection (BO1/BO2) â”€â”€
+  if (msg.action === 'GET_BO_TAB_STATE') {
+    sendResponse({ state: getBOTabState() });
+    return true;
+  }
 
-    if (preferredBOTabId) {
-      // Verify it still exists
-      chrome.tabs.get(preferredBOTabId, (tab) => {
-        if (!chrome.runtime.lastError && tab && tab.url?.includes('bo.eduzz.com')) {
-          focusTab(preferredBOTabId);
+  if (msg.action === 'ARM_BO_TAB') {
+    const slot = msg.slot === 2 ? 2 : 1;
+    const assignedTabId = getAssignedBOTabId(slot);
+
+    if (assignedTabId) {
+      focusBOTab(assignedTabId, (focused) => {
+        if (!focused) {
+          setBOTabAssignment(slot, null, false);
+          setArmedBOTabSlot(slot, false);
+          broadcastBOTabState();
         } else {
-          persistPreferredBOTabId(null);
-          findAndFocusBOTab(focusTab);
+          setArmedBOTabSlot(null, false);
+          broadcastBOTabState();
         }
+        sendResponse({ ok: true, focused, state: getBOTabState() });
       });
-    } else {
-      findAndFocusBOTab(focusTab);
+      return true;
     }
+
+    setArmedBOTabSlot(slot);
+    sendResponse({ ok: true, focused: false, state: getBOTabState() });
+    return true;
+  }
+
+  if (msg.action === 'RESET_BO_TABS') {
+    clearBOTabAssignments();
+    sendResponse({ ok: true, state: getBOTabState() });
+    return true;
+  }
+
+  // Backward-compat shim: old eye button action now just opens manual assignment mode for BO1.
+  if (msg.action === 'FOCUS_BO_TAB') {
+    setArmedBOTabSlot(1);
     return;
   }
 
@@ -472,6 +637,7 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
   focusedTabId = tabId;
   chrome.tabs.get(tabId, (tab) => {
     if (chrome.runtime.lastError || !tab) return;
+    assignArmedBOTabFromTab(tab);
 
     const url = tab.url || '';
     const hasUrlTicket = !!extractTicketIdFromTabUrl(url);
@@ -495,6 +661,7 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
     if (!tabs.length) return;
     const tab = tabs[0];
     focusedTabId = tab.id;
+    assignArmedBOTabFromTab(tab);
     refreshFocusedTicketOwnership(tab.id);
   });
 });
@@ -503,7 +670,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   processes.delete(tabId);
   delete sessionCache[tabId];
   syncSessionCache();
-  if (preferredBOTabId === tabId) persistPreferredBOTabId(null);
+  clearAssignedBOTabIfRemoved(tabId);
   if (lastTicketTabId === tabId) persistLastTicketTabId(null);
 });
 
@@ -511,6 +678,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   // If the user is focused on this tab and URL changed to another ticket/chat,
   // immediately refresh ownership so shortcuts follow current navigation.
   if (!changeInfo.url) return;
+  if (tab?.active) assignArmedBOTabFromTab(tab);
   if (tabId !== focusedTabId) return;
   if (!tab?.active) return;
   refreshFocusedTicketOwnership(tabId);
@@ -675,67 +843,8 @@ chrome.commands.onCommand.addListener((command) => {
 });
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// BO TAB SELECTION
+// BO TAB ASSIGNMENT (MANUAL)
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-
-function findAndFocusBOTab(callback) {
-  chrome.tabs.query({}, (tabs) => {
-    const boTabs = tabs.filter(t => t.url && t.url.includes('bo.eduzz.com'));
-    if (!boTabs.length) return;
-
-    // Prefer BO tabs in the same window as the currently focused ticket tab
-    let best = null;
-
-    if (focusedTabId) {
-      const focusedTab = tabs.find(t => t.id === focusedTabId);
-      if (focusedTab) {
-        const sameWindow = boTabs.filter(t => t.windowId === focusedTab.windowId);
-        if (sameWindow.length) {
-          best = sameWindow.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
-        }
-      }
-    }
-
-    // Fallback: any BO tab, most recently used
-    if (!best) {
-      best = boTabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
-    }
-
-    persistPreferredBOTabId(best.id);
-    callback(best.id);
-  });
-}
-
-function selectBOTab(allTabs, ticketTabId) {
-  const boTabs = allTabs.filter(t => t.url && t.url.includes('bo.eduzz.com'));
-  if (!boTabs.length) return null;
-
-  // 1. Preferred tab still valid â€” always use it, never switch away
-  if (preferredBOTabId) {
-    const preferred = boTabs.find(t => t.id === preferredBOTabId);
-    if (preferred) return preferred;
-    // Tab was closed â€” clear and fall through to pick a new one
-    persistPreferredBOTabId(null);
-  }
-
-  // 2. Same window as ticket tab, most recently used
-  const ticketTab = allTabs.find(t => t.id === ticketTabId);
-  let chosen = null;
-  if (ticketTab) {
-    const sameWindow = boTabs.filter(t => t.windowId === ticketTab.windowId);
-    if (sameWindow.length) {
-      chosen = sameWindow.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
-    }
-  }
-
-  // 3. Any BO tab, most recently used
-  if (!chosen) chosen = boTabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
-
-  // Lock this in as the preferred tab going forward
-  if (chosen) persistPreferredBOTabId(chosen.id);
-
-  return chosen;
-}
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // BO SEARCH ORCHESTRATION
@@ -762,30 +871,32 @@ function runBOSearch(proc) {
 
   pendingProc = null;
 
-  chrome.tabs.query({}, (allTabs) => {
+  resolveAssignedBOTab1((boTab) => {
     if (!isProcessStillValid(proc)) return;
 
-    const boTab = selectBOTab(allTabs, proc.tabId);
-
     if (!boTab) {
-      if (!proc.name) proc.name = '-';
-      const knownEmail = proc.email || sessionCache[proc.tabId]?.email || '-';
-      if (!proc.email && knownEmail !== '-') proc.email = knownEmail;
-      proc.doc = '> Sem aba BackOffice aberta';
+      const normalizeStoppedField = (value) => {
+        const text = String(value ?? '').trim();
+        return !text || text === '...' ? '-' : value;
+      };
+
+      proc.name = normalizeStoppedField(proc.name);
+      const knownEmail = normalizeStoppedField(proc.email || sessionCache[proc.tabId]?.email || '-');
+      proc.email = knownEmail;
+      proc.doc = '> Sem aba BO designada';
       proc.accounts = '-';
       proc.status = 'ABORTED';
       finalizeStoppedDisplayFields(proc);
       sendToTab(proc.tabId, {
         action: 'UPDATE_POPUP',
         processId: proc.processId,
-        fields: { name: proc.name, email: knownEmail, doc: proc.doc, accounts: proc.accounts }
+        fields: { name: proc.name, email: proc.email, doc: proc.doc, accounts: proc.accounts }
       });
       updateCacheFromProcess(proc);
       flushPending();
       return;
     }
 
-    persistPreferredBOTabId(boTab.id);
     proc.status = 'SEARCHING_EMAIL';
     boSearchBusy = true;
     boSearchOwner = proc.processId;
@@ -812,7 +923,6 @@ function runBOSearch(proc) {
         clearTimeout(safetyTimer);
         boSearchBusy = false;
         boSearchOwner = null;
-        persistPreferredBOTabId(null);
         proc.doc = '> Erro na busca';
         proc.accounts = '-';
         proc.status = 'ABORTED';
@@ -1316,7 +1426,6 @@ function runDocValidationAndSearch(proc, boTabId) {
       clearTimeout(safetyTimer);
       boSearchBusy = false;
       boSearchOwner = null;
-      persistPreferredBOTabId(null);
       proc.accounts = '> Erro na busca doc';
       proc.status = 'ABORTED';
       finalizeStoppedDisplayFields(proc);
@@ -1569,10 +1678,12 @@ function handleDocResult(proc, result) {
 // RESTORE SESSION CACHE ON SERVICE WORKER WAKE
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-chrome.storage.session.get(['sessionCache', 'lastTicketTabId', 'preferredBOTabId'], (data) => {
-  if (data.sessionCache)     sessionCache     = data.sessionCache;
-  if (data.lastTicketTabId)  lastTicketTabId  = data.lastTicketTabId;
-  if (data.preferredBOTabId) preferredBOTabId = data.preferredBOTabId;
+chrome.storage.session.get(['sessionCache', 'lastTicketTabId', 'boTab1Id', 'boTab2Id', 'boAssignArmedSlot'], (data) => {
+  if (data.sessionCache) sessionCache = data.sessionCache;
+  if (data.lastTicketTabId) lastTicketTabId = data.lastTicketTabId;
+  if (data.boTab1Id) boTab1Id = data.boTab1Id;
+  if (data.boTab2Id) boTab2Id = data.boTab2Id;
+  if (data.boAssignArmedSlot) boAssignArmedSlot = data.boAssignArmedSlot;
 });
 
 
