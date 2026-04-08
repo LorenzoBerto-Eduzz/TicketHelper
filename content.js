@@ -836,6 +836,16 @@ function extractHubSpot(processId, ticketId, isForcedStart = false) {
     if (!isCurrent() || emailSent) return false;
     if (tryOpenerEmail()) return true;
 
+    // Single-contact fast path:
+    // if opener is not an email, hover the single contact tag immediately
+    // before doing requester-section traversal.
+    const singleTag = getSingleVisibleTag();
+    if (singleTag) {
+      const resolvedSingle = await resolveSingleContact(singleTag);
+      if (resolvedSingle) return true;
+      if (!isCurrent() || emailSent) return false;
+    }
+
     const openerRaw = getTicketOpenerLabel();
     if (!openerRaw) return false;
 
