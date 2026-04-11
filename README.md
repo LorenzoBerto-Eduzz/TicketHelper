@@ -1,4 +1,4 @@
-Ticket Helper - Guia: https://docs.google.com/document/d/18xjNcs9Eif6fTGiz5TuAANvABk1Q4bpVm276VCMMErA/edit?usp=sharing
+[Ticket Helper - Guia](https://docs.google.com/document/d/18xjNcs9Eif6fTGiz5TuAANvABk1Q4bpVm276VCMMErA/edit?usp=sharing)
 
 # Como instalar
 
